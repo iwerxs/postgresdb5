@@ -1,4 +1,4 @@
-import  { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import '../styles.css';
 
@@ -34,6 +34,7 @@ const SentRefs = () => {
               <strong>Referee Client:</strong> {referral.referee_client}<br />
               <strong>Referee Client Email:</strong> {referral.referee_client_email}<br />
               <strong>Status:</strong> {referral.status}<br />
+              <strong>Referrer:</strong> {referral.referrer_username}<br />
               <hr />
             </li>
           ))}

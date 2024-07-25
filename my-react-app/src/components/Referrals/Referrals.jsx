@@ -1,18 +1,19 @@
 import { useState } from "react";
+import PropTypes from 'prop-types';
 import "./Referrals.css";
 import SentRefs from "./SentRefs";
 import ReceivedRefs from "./ReceivedRefs";
 import CreateRefs from "./CreateReferral";
 
-const Referrals = () => {
+const Referrals = ({ role }) => {
   const [activeTab, setActiveTab] = useState("Referrals Sent");
 
   const renderContent = () => {
     switch (activeTab) {
       case "Referrals Sent":
-        return <SentRefs />;
+        return <SentRefs role={role} />;
       case "Referrals Received":
-        return <ReceivedRefs />;
+        return <ReceivedRefs role={role} />;
       case "Create Referral":
         return <CreateRefs />;
       default:
@@ -46,6 +47,10 @@ const Referrals = () => {
       <div className='tab-content-bottom'></div>
     </div>
   );
+};
+
+Referrals.propTypes = {
+  role: PropTypes.string.isRequired,
 };
 
 export default Referrals;

@@ -38,6 +38,7 @@ type ReferralRequest struct {
 	Content            string    `json:"content"`
 	Username           string    `json:"username"`
 	ReferrerUserID     int       `json:"referrer_user_id"`
+	ReferrerUsername   string    `json:"referrer_username"`
 	CompanyID          int       `json:"company_id"`
 	RefereeClient      string    `json:"referee_client"`
 	RefereeClientEmail string    `json:"referee_client_email"`
@@ -47,9 +48,9 @@ type ReferralRequest struct {
 }
 
 func main() {
-	user := "testusr"
-	password := "testing"
-	dbName := "dbtest4"
+	user := "postgres"
+	password := "mimi123"
+	dbName := "dbtest"
 
 	createDatabaseIfNotExists(dbName, user, password)
 	connStr := fmt.Sprintf("user=%s password=%s dbname=%s sslmode=disable", user, password, dbName)
@@ -491,11 +492,21 @@ func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var referralRequests []ReferralRequest
-	rows, err := db.Query("SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
-		"FROM referral_requests r "+
-		"LEFT JOIN companies c ON r.company_id = c.id "+
-		"WHERE r.referrer_user_id = $1 "+
-		"ORDER BY r.created_at DESC", user.ID)
+	var rows *sql.Rows
+
+	if user.Role == "superAdmin" || user.Role == "platformAdmin" {
+		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
+			"FROM referral_requests r "+
+			"LEFT JOIN companies c ON r.company_id = c.id "+
+			"ORDER BY r.created_at DESC")
+	} else {
+		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
+			"FROM referral_requests r "+
+			"LEFT JOIN companies c ON r.company_id = c.id "+
+			"WHERE r.referrer_user_id = $1 "+
+			"ORDER BY r.created_at DESC", user.ID)
+	}
+
 	if err != nil {
 		log.Println("Error fetching referral requests:", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -505,7 +516,7 @@ func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var referralRequest ReferralRequest
-		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.Username,
+		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
 			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
 			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
 		if err != nil {
@@ -547,11 +558,21 @@ func GetReferralsReceivedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var referralRequests []ReferralRequest
-	rows, err := db.Query("SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
-		"FROM referral_requests r "+
-		"LEFT JOIN companies c ON r.company_id = c.id "+
-		"WHERE r.company_id = $1 "+
-		"ORDER BY r.created_at DESC", user.CompanyID)
+	var rows *sql.Rows
+
+	if user.Role == "superAdmin" || user.Role == "platformAdmin" {
+		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
+			"FROM referral_requests r "+
+			"LEFT JOIN companies c ON r.company_id = c.id "+
+			"ORDER BY r.created_at DESC")
+	} else {
+		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
+			"FROM referral_requests r "+
+			"LEFT JOIN companies c ON r.company_id = c.id "+
+			"WHERE r.company_id = $1 "+
+			"ORDER BY r.created_at DESC", user.CompanyID)
+	}
+
 	if err != nil {
 		log.Println("Error fetching referral requests:", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -561,7 +582,7 @@ func GetReferralsReceivedHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var referralRequest ReferralRequest
-		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.Username,
+		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
 			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
 			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
 		if err != nil {

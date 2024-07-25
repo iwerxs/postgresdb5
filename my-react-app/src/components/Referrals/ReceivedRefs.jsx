@@ -1,4 +1,4 @@
-import  { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import '../styles.css';
 
@@ -47,6 +47,7 @@ const ReceivedRefs = () => {
             <p>{referral.content}</p>
             <p>Referee Client: {referral.referee_client}</p>
             <p>Referee Client Email: {referral.referee_client_email}</p>
+            <p>Referrer: {referral.referrer_username}</p>
             <p>Status: {referral.status}</p>
             <p>Created At: {new Date(referral.created_at).toLocaleString()}</p>
             <button onClick={() => handleAction(referral.id, 'approve')}>Accept</button>
