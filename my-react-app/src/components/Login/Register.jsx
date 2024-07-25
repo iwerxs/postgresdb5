@@ -87,7 +87,7 @@ const Register = () => {
             required
           >
             <option value="user">Company User</option>
-            <option value="admin">Company Admin</option>
+            <option value="companyAdmin">Company Admin</option>
             <option value="platformAdmin">Platform Admin</option>
             <option value="superAdmin">Super Admin</option>
           </select>

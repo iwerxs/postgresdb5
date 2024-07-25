@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import Modal from "../Modal/Modal";
 import "./CreateRefs.css";
 
 const CreateReferral = () => {
   const [formData, setFormData] = useState({
     title: "",
     content: "",
-    company_id: "", // Adjusted to match backend field name
+    company_id: "", // Ensure this matches backend field name
     referee_client: "",
     referee_client_email: "",
   });
@@ -31,10 +30,7 @@ const CreateReferral = () => {
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]:
-        e.target.name === "company_id"
-          ? parseInt(e.target.value, 10)
-          : e.target.value,
+      [e.target.name]: e.target.name === "company_id" ? parseInt(e.target.value, 10) : e.target.value,
     });
   };
 
