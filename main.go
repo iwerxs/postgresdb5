@@ -551,7 +551,7 @@ func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var referralRequest ReferralRequest
-		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.Username,
+		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
 			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
 			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
 		if err != nil {
@@ -617,7 +617,7 @@ func GetReferralsReceivedHandler(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var referralRequest ReferralRequest
-		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.Username,
+		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
 			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
 			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
 		if err != nil {
