@@ -4,6 +4,7 @@ import '../styles.css';
 
 const SentRefs = () => {
   const [referrals, setReferrals] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchReferrals = async () => {
@@ -12,12 +13,15 @@ const SentRefs = () => {
         setReferrals(response.data);
       } catch (error) {
         console.error('Error fetching referral requests:', error);
-        // Handle error: display message or retry mechanism
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchReferrals();
   }, []);
+
+  if (loading) return <p>Loading...</p>;
 
   return (
     <div>

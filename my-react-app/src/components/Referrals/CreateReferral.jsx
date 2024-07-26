@@ -1,27 +1,30 @@
-import { useState, useEffect } from "react";
-import axios from "axios";
-import "./CreateRefs.css";
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+import PropTypes from 'prop-types';
+import './CreateRefs.css';
 
-const CreateReferral = () => {
+const CreateReferral = ({ userCompanyId }) => {
   const [formData, setFormData] = useState({
     title: "",
     content: "",
-    company_id: "", // Ensure this matches backend field name
+    sent_company_id: userCompanyId, // Default to user's company_id
+    receiving_company_id: "", // Add field for receiving company ID
     referee_client: "",
     referee_client_email: "",
   });
   const [companies, setCompanies] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Fetch the list of companies from the backend
     const fetchCompanies = async () => {
       try {
-        const response = await axios.get("http://localhost:8080/companies", {
-          withCredentials: true,
-        });
+        const response = await axios.get("http://localhost:8080/companies", { withCredentials: true });
         setCompanies(response.data);
       } catch (error) {
         console.error("Error fetching companies:", error);
+      } finally {
+        setLoading(false);
       }
     };
     fetchCompanies();
@@ -30,12 +33,15 @@ const CreateReferral = () => {
   const handleChange = (e) => {
     setFormData({
       ...formData,
-      [e.target.name]: e.target.name === "company_id" ? parseInt(e.target.value, 10) : e.target.value,
+      [e.target.name]: e.target.name === "sent_company_id" || e.target.name === "receiving_company_id"
+        ? parseInt(e.target.value, 10)
+        : e.target.value,
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Form Data:', formData); // Log form data to inspect the values
     try {
       const response = await axios.post(
         "http://localhost:8080/create-referral",
@@ -52,19 +58,19 @@ const CreateReferral = () => {
         setFormData({
           title: "",
           content: "",
-          company_id: "",
+          sent_company_id: userCompanyId, // Reset to user's company_id
+          receiving_company_id: "", // Reset to empty
           referee_client: "",
           referee_client_email: "",
         });
       }
     } catch (error) {
       console.error("Error creating referral request:", error);
-      alert(
-        "Failed to create referral request: " +
-          (error.response?.data || error.message)
-      );
+      alert("Failed to create referral request: " + (error.response?.data || error.message));
     }
   };
+  
+  if (loading) return <p>Loading companies...</p>;
 
   return (
     <div className='create-referral'>
@@ -99,13 +105,30 @@ const CreateReferral = () => {
           <br />
 
           <div className='ref-dropdown'>
-            <label htmlFor='company'>Company:</label>
+            <label htmlFor='sentCompany'>Sending Company:</label>
             <select
-              id='company'
-              name='company_id' // Ensure this matches the backend field name
-              value={formData.company_id}
+              id='sentCompany'
+              name='sent_company_id'
+              value={formData.sent_company_id}
               onChange={handleChange}
-              required>
+              required
+              disabled
+            >
+              <option value={userCompanyId}>{`Company ID: ${userCompanyId}`}</option> {/* Display user's company ID */}
+            </select>
+          </div>
+
+          <br />
+
+          <div className='ref-dropdown'>
+            <label htmlFor='receivingCompany'>Receiving Company:</label>
+            <select
+              id='receivingCompany'
+              name='receiving_company_id'
+              value={formData.receiving_company_id}
+              onChange={handleChange}
+              required
+            >
               <option value=''>Select a company</option>
               {companies.map((company) => (
                 <option key={company.id} value={company.id}>
@@ -151,6 +174,10 @@ const CreateReferral = () => {
       </form>
     </div>
   );
+};
+
+CreateReferral.propTypes = {
+  userCompanyId: PropTypes.number.isRequired,
 };
 
 export default CreateReferral;

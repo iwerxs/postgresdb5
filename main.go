@@ -40,6 +40,9 @@ type ReferralRequest struct {
 	ReferrerUserID     int       `json:"referrer_user_id"`
 	ReferrerUsername   string    `json:"referrer_username"`
 	CompanyID          int       `json:"company_id"`
+	SentCompanyID      int       `json:"sent_company_id"`
+	SentCompanyName    string    `json:"sent_company_name"`
+	ReceivingCompanyID int       `json:"receiving_company_id"`
 	RefereeClient      string    `json:"referee_client"`
 	RefereeClientEmail string    `json:"referee_client_email"`
 	CreatedAt          time.Time `json:"created_at"`
@@ -87,6 +90,7 @@ func main() {
 	r.HandleFunc("/delete-user", DeleteUserHandler).Methods("POST")
 	r.HandleFunc("/create-company", CreateCompanyHandler).Methods("POST")
 	r.HandleFunc("/delete-company", DeleteCompanyHandler).Methods("POST")
+	r.HandleFunc("/get-user-info", GetUserInfoHandler).Methods("GET")
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173"},
@@ -97,6 +101,34 @@ func main() {
 
 	handler := c.Handler(r)
 	http.ListenAndServe(":8080", handler)
+}
+
+// Assuming you have a function to get the current user from the session or token
+func GetUserInfoHandler(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := r.Cookie("session_id")
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var user User
+	err = db.QueryRow(`
+        SELECT u.id, u.email, u.username, u.company_id 
+        FROM users u 
+        INNER JOIN sessions s ON u.id = s.user_id 
+        WHERE s.session_id = $1
+    `, sessionID.Value).Scan(&user.ID, &user.Email, &user.Username, &user.CompanyID)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with user information
+	response := map[string]interface{}{
+		"companyId": user.CompanyID,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // Function to create a database if it doesn't exist
@@ -156,20 +188,22 @@ func createTables() {
 			title TEXT NOT NULL,
 			content TEXT NOT NULL,
 			referrer_user_id INTEGER NOT NULL,
-			company_id INTEGER,
+			company_id INTEGER NOT NULL,
+			receiving_company_id INTEGER,
+			sent_company_id INTEGER,
 			referee_client TEXT NOT NULL,
 			referee_client_email TEXT NOT NULL,
 			created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 			status TEXT NOT NULL DEFAULT 'pending',
 			FOREIGN KEY (referrer_user_id) REFERENCES users(id),
-			FOREIGN KEY (company_id) REFERENCES companies(id)
+			FOREIGN KEY (receiving_company_id) REFERENCES companies(id), -- Add this field
+			FOREIGN KEY (sent_company_id) REFERENCES companies(id)
 		);`,
 	}
 
 	for _, query := range queries {
-		_, err := db.Exec(query)
-		if err != nil {
-			log.Fatalf("Error executing query:\n%s\nError: %v", query, err)
+		if _, err := db.Exec(query); err != nil {
+			log.Fatalf("Error creating table: %v", err)
 		}
 	}
 }
@@ -377,48 +411,6 @@ func fetchCompanies(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(companies)
 }
 
-func CreateReferralRequestHandler(w http.ResponseWriter, r *http.Request) {
-	sessionID, err := r.Cookie("session_id")
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var user User
-	err = db.QueryRow("SELECT u.id, u.email, u.username, u.password, u.role, u.company_id, c.name FROM users u "+
-		"LEFT JOIN companies c ON u.company_id = c.id "+
-		"INNER JOIN sessions s ON u.id = s.user_id "+
-		"WHERE s.session_id = $1", sessionID.Value).
-		Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID, &user.CompanyName)
-	if err != nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	var referralRequest ReferralRequest
-	if err := json.NewDecoder(r.Body).Decode(&referralRequest); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	referralRequest.Username = user.Username
-	referralRequest.ReferrerUserID = user.ID
-
-	// Validate referral request fields
-	if referralRequest.Title == "" || referralRequest.Content == "" || referralRequest.RefereeClient == "" {
-		http.Error(w, "Invalid input fields", http.StatusBadRequest)
-		return
-	}
-
-	_, err = db.Exec("INSERT INTO referral_requests (username, title, content, referrer_user_id, company_id, referee_client, referee_client_email) "+
-		"VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		referralRequest.Username, referralRequest.Title, referralRequest.Content, referralRequest.ReferrerUserID,
-		referralRequest.CompanyID, referralRequest.RefereeClient, referralRequest.RefereeClientEmail)
-	if err != nil {
-		log.Println("Error creating referral request:", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-}
-
 func ApproveReferralRequestHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID, err := r.Cookie("session_id")
 	if err != nil {
@@ -479,6 +471,79 @@ func DenyReferralRequestHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func CreateReferralRequestHandler(w http.ResponseWriter, r *http.Request) {
+	sessionID, err := r.Cookie("session_id")
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var user User
+	err = db.QueryRow(`
+		SELECT u.id, u.email, u.username, u.password, u.role, u.company_id, c.name 
+		FROM users u 
+		LEFT JOIN companies c ON u.company_id = c.id 
+		INNER JOIN sessions s ON u.id = s.user_id 
+		WHERE s.session_id = $1
+	`, sessionID.Value).Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID, &user.CompanyName)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var referralRequest ReferralRequest
+	if err := json.NewDecoder(r.Body).Decode(&referralRequest); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	referralRequest.Username = user.Username
+	referralRequest.ReferrerUserID = user.ID
+	referralRequest.CompanyID = user.CompanyID
+
+	if referralRequest.Title == "" || referralRequest.Content == "" || referralRequest.RefereeClient == "" {
+		http.Error(w, "Invalid input fields", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that sent_company_id exists in the companies table
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM companies WHERE id = $1", referralRequest.SentCompanyID).Scan(&count)
+	if err != nil {
+		log.Println("Error checking sent_company_id existence:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if count == 0 {
+		http.Error(w, "Invalid sent company ID", http.StatusBadRequest)
+		return
+	}
+
+	// Validate that receiving_company_id exists in the companies table
+	err = db.QueryRow("SELECT COUNT(*) FROM companies WHERE id = $1", referralRequest.ReceivingCompanyID).Scan(&count)
+	if err != nil {
+		log.Println("Error checking receiving_company_id existence:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if count == 0 {
+		http.Error(w, "Invalid receiving company ID", http.StatusBadRequest)
+		return
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO referral_requests (username, title, content, referrer_user_id, company_id, sent_company_id, receiving_company_id, referee_client, referee_client_email)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, referralRequest.Username, referralRequest.Title, referralRequest.Content, referralRequest.ReferrerUserID, referralRequest.CompanyID, referralRequest.SentCompanyID, referralRequest.ReceivingCompanyID, referralRequest.RefereeClient, referralRequest.RefereeClientEmail)
+	if err != nil {
+		log.Println("Error creating referral request:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
 func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 	sessionID, err := r.Cookie("session_id")
 	if err != nil {
@@ -487,35 +552,49 @@ func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user User
-	err = db.QueryRow("SELECT u.id, u.email, u.username, u.password, u.role, u.company_id FROM users u "+
-		"INNER JOIN sessions s ON u.id = s.user_id "+
-		"WHERE s.session_id = $1", sessionID.Value).
-		Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID)
+	err = db.QueryRow(`
+		SELECT u.id, u.email, u.username, u.password, u.role, u.company_id 
+		FROM users u 
+		INNER JOIN sessions s ON u.id = s.user_id 
+		WHERE s.session_id = $1
+	`, sessionID.Value).Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var referralRequests []ReferralRequest
 	var rows *sql.Rows
+	var query string
 
 	if user.Role == "superAdmin" || user.Role == "platformAdmin" {
-		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name " +
-			"FROM referral_requests r " +
-			"LEFT JOIN companies c ON r.company_id = c.id " +
-			"ORDER BY r.created_at DESC")
+		query = `
+			SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name 
+			FROM referral_requests r 
+			LEFT JOIN companies c ON r.company_id = c.id 
+			LEFT JOIN companies sc ON r.sent_company_id = sc.id 
+			ORDER BY r.created_at DESC
+		`
+		rows, err = db.Query(query)
 	} else if user.Role == "companyAdmin" {
-		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
-			"FROM referral_requests r "+
-			"LEFT JOIN companies c ON r.company_id = c.id "+
-			"WHERE r.company_id = $1 "+
-			"ORDER BY r.created_at DESC", user.CompanyID)
+		query = `
+			SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name 
+			FROM referral_requests r 
+			LEFT JOIN companies c ON r.company_id = c.id 
+			LEFT JOIN companies sc ON r.sent_company_id = sc.id 
+			WHERE r.sent_company_id = $1 
+			ORDER BY r.created_at DESC
+		`
+		rows, err = db.Query(query, user.CompanyID)
 	} else {
-		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
-			"FROM referral_requests r "+
-			"LEFT JOIN companies c ON r.company_id = c.id "+
-			"WHERE r.referrer_user_id = $1 "+
-			"ORDER BY r.created_at DESC", user.ID)
+		query = `
+			SELECT r.id, r.title, r.content, r.username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name 
+			FROM referral_requests r 
+			LEFT JOIN companies c ON r.company_id = c.id 
+			LEFT JOIN companies sc ON r.sent_company_id = sc.id 
+			WHERE r.referrer_user_id = $1 
+			ORDER BY r.created_at DESC
+		`
+		rows, err = db.Query(query, user.ID)
 	}
 
 	if err != nil {
@@ -523,13 +602,18 @@ func GetReferralsSentHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 
+	var referralRequests []ReferralRequest
 	for rows.Next() {
 		var referralRequest ReferralRequest
 		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
-			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
-			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
+			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.SentCompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
+			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName, &referralRequest.SentCompanyName)
 		if err != nil {
 			log.Println("Error scanning referral request row:", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -559,43 +643,69 @@ func GetReferralsReceivedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var user User
-	err = db.QueryRow("SELECT u.id, u.email, u.username, u.password, u.role, u.company_id FROM users u "+
-		"INNER JOIN sessions s ON u.id = s.user_id "+
-		"WHERE s.session_id = $1", sessionID.Value).
-		Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID)
+	err = db.QueryRow(`
+        SELECT u.id, u.email, u.username, u.password, u.role, u.company_id 
+        FROM users u 
+        INNER JOIN sessions s ON u.id = s.user_id 
+        WHERE s.session_id = $1
+    `, sessionID.Value).Scan(&user.ID, &user.Email, &user.Username, &user.Password, &user.Role, &user.CompanyID)
 	if err != nil {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	var referralRequests []ReferralRequest
 	var rows *sql.Rows
+	var query string
 
 	if user.Role == "superAdmin" || user.Role == "platformAdmin" {
-		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name " +
-			"FROM referral_requests r " +
-			"LEFT JOIN companies c ON r.company_id = c.id " +
-			"ORDER BY r.created_at DESC")
-	} else {
-		rows, err = db.Query("SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name "+
-			"FROM referral_requests r "+
-			"LEFT JOIN companies c ON r.company_id = c.id "+
-			"WHERE r.company_id = $1 "+
-			"ORDER BY r.created_at DESC", user.CompanyID)
+		query = `
+            SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name 
+            FROM referral_requests r 
+            LEFT JOIN companies c ON r.company_id = c.id 
+            LEFT JOIN companies sc ON r.sent_company_id = sc.id 
+            ORDER BY r.created_at DESC
+        `
+		rows, err = db.Query(query)
+	} else if user.Role == "companyAdmin" || user.Role == "user" {
+		query = `
+            SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name 
+            FROM referral_requests r 
+            LEFT JOIN companies c ON r.company_id = c.id 
+            LEFT JOIN companies sc ON r.sent_company_id = sc.id 
+            WHERE r.receiving_company_id = $1 
+            ORDER BY r.created_at DESC
+        `
+		rows, err = db.Query(query, user.CompanyID)
 	}
+	// } else {
+	//     query = `
+	//         SELECT r.id, r.title, r.content, r.username AS referrer_username, r.referrer_user_id, r.company_id, r.sent_company_id, r.referee_client, r.referee_client_email, r.created_at, r.status, c.name AS company_name, sc.name AS sent_company_name
+	//         FROM referral_requests r
+	//         LEFT JOIN companies c ON r.company_id = c.id
+	//         LEFT JOIN companies sc ON r.sent_company_id = sc.id
+	//         WHERE r.receiving_company_id = $1 OR r.referrer_user_id = $2
+	//         ORDER BY r.created_at DESC
+	//     `
+	//     rows, err = db.Query(query, user.CompanyID, user.ID)
+	// }
 
 	if err != nil {
 		log.Println("Error fetching referral requests:", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if rows != nil {
+			rows.Close()
+		}
+	}()
 
+	var referralRequests []ReferralRequest
 	for rows.Next() {
 		var referralRequest ReferralRequest
 		err := rows.Scan(&referralRequest.ID, &referralRequest.Title, &referralRequest.Content, &referralRequest.ReferrerUsername,
-			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
-			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName)
+			&referralRequest.ReferrerUserID, &referralRequest.CompanyID, &referralRequest.SentCompanyID, &referralRequest.RefereeClient, &referralRequest.RefereeClientEmail,
+			&referralRequest.CreatedAt, &referralRequest.Status, &referralRequest.CompanyName, &referralRequest.SentCompanyName)
 		if err != nil {
 			log.Println("Error scanning referral request row:", err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)

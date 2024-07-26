@@ -4,15 +4,17 @@ import '../styles.css';
 
 const ReceivedRefs = () => {
   const [referrals, setReferrals] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch data for received referrals when component mounts
     const fetchReceivedReferrals = async () => {
       try {
         const response = await axios.get('http://localhost:8080/referrals-received', { withCredentials: true });
         setReferrals(response.data);
       } catch (error) {
         console.error('Error fetching received referrals:', error);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -22,10 +24,9 @@ const ReceivedRefs = () => {
   const handleAction = async (referralRequestID, action) => {
     try {
       await axios.post(`http://localhost:8080/referral-request-action/${action}/${referralRequestID}`, {}, {
-        withCredentials: true // Ensure credentials are sent with the request
+        withCredentials: true
       });
       alert(`Referral request ${action}ed successfully`);
-      // Refresh the referral requests list with updated status
       setReferrals(prevRequests =>
         prevRequests.map(request =>
           request.id === referralRequestID ? { ...request, status: action === 'approve' ? 'Approved' : 'Denied' } : request
@@ -36,6 +37,8 @@ const ReceivedRefs = () => {
       alert(`Failed to ${action} referral request`);
     }
   };
+
+  if (loading) return <p>Loading...</p>;
 
   return (
     <div>

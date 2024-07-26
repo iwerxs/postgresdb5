@@ -1,12 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PropTypes from 'prop-types';
 import "./Referrals.css";
 import SentRefs from "./SentRefs";
 import ReceivedRefs from "./ReceivedRefs";
-import CreateRefs from "./CreateReferral";
+import CreateReferral from "./CreateReferral";
+import axios from "axios";
 
 const Referrals = ({ role }) => {
   const [activeTab, setActiveTab] = useState("Referrals Sent");
+  const [userCompanyId, setUserCompanyId] = useState(null);
+
+  useEffect(() => {
+    const fetchUserCompanyId = async () => {
+      try {
+        const response = await axios.get("http://localhost:8080/get-user-info", { withCredentials: true });
+        setUserCompanyId(response.data.companyId);
+      } catch (error) {
+        console.error("Error fetching user info:", error);
+      }
+    };
+
+    fetchUserCompanyId();
+  }, []);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -15,7 +30,11 @@ const Referrals = ({ role }) => {
       case "Referrals Received":
         return <ReceivedRefs role={role} />;
       case "Create Referral":
-        return <CreateRefs />;
+        return userCompanyId ? (
+          <CreateReferral userCompanyId={userCompanyId} />
+        ) : (
+          <p>Loading...</p>
+        );
       default:
         return null; // This case should never happen with the current setup
     }
